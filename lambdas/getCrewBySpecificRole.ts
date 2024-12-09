@@ -1,6 +1,6 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, QueryCommandInput } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = createDDbDocClient();
 
@@ -12,6 +12,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
         const parameters = event?.pathParameters;
         const role = parameters?.role ? parameters?.role : undefined;
         const movieId = parameters?.movieId ? parseInt(parameters?.movieId) : undefined;
+        const nameSubStr = event.queryStringParameters?.name ? event.queryStringParameters?.name : undefined;
 
         if (!role || !movieId) {
             return {
@@ -19,23 +20,43 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
                 headers: {
                     "content-type": "application/json",
                 },
-                body: JSON.stringify({ "error": "Invalid Movie Id or Role!" }),
+                body: JSON.stringify({ "error": "Invalid or empty path parameters!" }),
             };
         }
 
-        const getCrewCommandOutput = await ddbDocClient.send(
-            new QueryCommand({
+        let queryCommandInput: QueryCommandInput = {
+            TableName: process.env.TABLE_NAME,
+            KeyConditionExpression: "#crewRole = :role and #movieId = :movieId",
+            ExpressionAttributeNames: {
+                "#crewRole": "crewRole",
+                "#movieId": "movieId",
+            },
+            ExpressionAttributeValues: {
+                ":role": role,
+                ":movieId": movieId,
+            },
+        }
+
+        if (nameSubStr) {
+            queryCommandInput = {
                 TableName: process.env.TABLE_NAME,
                 KeyConditionExpression: "#crewRole = :role and #movieId = :movieId",
+                FilterExpression: "contains(#names, :n)",
                 ExpressionAttributeNames: {
                     "#crewRole": "crewRole",
                     "#movieId": "movieId",
+                    "#names": "names",
                 },
                 ExpressionAttributeValues: {
                     ":role": role,
                     ":movieId": movieId,
+                    ":n": nameSubStr,
                 },
-            })
+            };
+        }
+
+        const getCrewCommandOutput = await ddbDocClient.send(
+            new QueryCommand(queryCommandInput)
         );
 
         if (!getCrewCommandOutput.Items) {
