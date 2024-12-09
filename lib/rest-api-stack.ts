@@ -62,7 +62,7 @@ export class RestAPIStack extends cdk.Stack {
         environment: {
           MOVIES_TABLE_NAME: moviesTable.tableName,
           CAST_TABLE_NAME: movieCastsTable.tableName,
-          REGION: "eu-west-1",
+          REGION: "eu-north-1",
         },
       }
     );
@@ -78,7 +78,7 @@ export class RestAPIStack extends cdk.Stack {
         memorySize: 128,
         environment: {
           TABLE_NAME: movieCastsTable.tableName,
-          REGION: "eu-west-1",
+          REGION: "eu-north-1",
         },
       }
     );
@@ -94,10 +94,26 @@ export class RestAPIStack extends cdk.Stack {
         memorySize: 128,
         environment: {
           TABLE_NAME: moviesTable.tableName,
-          REGION: "eu-west-1",
+          REGION: "eu-north-1",
         },
       }
     );
+
+    const getCrewBySpecificRole = new lambdanode.NodejsFunction(
+      this,
+      "GetCrewBySpecificRoleFn",
+      {
+        architecture: lambda.Architecture.ARM_64,
+        runtime: lambda.Runtime.NODEJS_18_X,
+        entry: `${__dirname}/../lambdas/getCrewBySpecificRole.ts`,
+        timeout: cdk.Duration.seconds(10),
+        memorySize: 128,
+        environment: {
+          TABLE_NAME: movieCrewTable.tableName,
+          REGION: "eu-north-1",
+        },
+      }
+    )
 
     new custom.AwsCustomResource(this, "moviesddbInitData", {
       onCreate: {
@@ -158,10 +174,21 @@ export class RestAPIStack extends cdk.Stack {
       new apig.LambdaIntegration(deleteMovieByIdFn, { proxy: true })
     );
 
+    const crewEndpoint = api.root.addResource("crew");
+    const roleEndpoint = crewEndpoint.addResource("{role}");
+    const roleMoviesEndpoint = roleEndpoint.addResource("movies");
+    const roleSpecificMovieEndpoint = roleMoviesEndpoint.addResource("{movieId}");
+
+    roleSpecificMovieEndpoint.addMethod(
+      "GET",
+      new apig.LambdaIntegration(getCrewBySpecificRole, { proxy: true })
+    );
+
     // Permissions;
     moviesTable.grantReadData(getMovieByIdFn);
     moviesTable.grantReadWriteData(deleteMovieByIdFn);
     movieCastsTable.grantReadData(getMovieCastMembersFn);
     movieCastsTable.grantReadData(getMovieByIdFn);
+    movieCrewTable.grantReadData(getCrewBySpecificRole);
   }
 }
